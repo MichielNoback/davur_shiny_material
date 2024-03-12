@@ -154,6 +154,10 @@ In all of R code chunks above the `echo = TRUE` attribute is used. You should ch
 `echo = FALSE` if you want to prevent the R code within the chunk from rendering in the 
 document alongside the Shiny components.
 
+## More examples
+
+The repo in which this notebook resides holds two more small demo apps that you can inspect: app-1 and app-2.
+
 
 ## Mastering Shiny 
 
