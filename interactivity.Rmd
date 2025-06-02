@@ -89,7 +89,7 @@ renderPlot({
     plt <- ggplot(data = faithful,
            mapping = aes(x = eruptions)) +
         geom_histogram(mapping = aes(y = ..density..), 
-                       bins = input$n_breaks,
+                       bins = as.integer(input$n_breaks),
                        fill = "green",
                        color = "black") +
         geom_density(bw = input$bw_adjust, color = "darkblue", linewidth = 1.5) +
@@ -128,7 +128,7 @@ shinyApp(
     })
   },
 
-  options = list(height = 400)
+  options = list(height = 600)
 )
 ```
 
@@ -141,8 +141,8 @@ Finally, it's also possible to embed an entire Shiny application within an R Mar
 ```{r tabsets, echo=TRUE}
 shinyAppDir(
     #system.file("examples/06_tabsets", package = "shiny"),
-    "./autoimmune_cohort_analysis/",
-    options = list(width = "100%", height = 500)
+    "./app-3-autoimmune_cohort_analysis/",
+    options = list(width = "100%", height = 600)
 )
 ```
 

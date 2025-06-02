@@ -76,7 +76,7 @@ It's also possible to embed an entire Shiny application within an R Markdown doc
 ```{r tabsets, echo=FALSE}
 shinyAppDir(
     #system.file("examples/06_tabsets", package = "shiny"),
-    "./autoimmune_cohort_analysis/",
+    "./app-3-autoimmune_cohort_analysis/",
     options = list(width = "100%", height = 550)
 )
 ```

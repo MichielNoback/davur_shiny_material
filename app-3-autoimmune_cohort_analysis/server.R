@@ -39,21 +39,26 @@ filter_data <- function(x,age,gender){
 function(input, output, session) {
     output$boxPlot <- renderPlot({
         # Make a selection based on the age selector
-        
         tp <- filter_data(mydata, input$age_selector, input$gender_selector) %>% 
             rename(readout = input$protein_selector)
         
         p <- ggplot(tp, aes(x = Diagnosis,  
                             y = readout, 
-                            fill = Gender))
-        p <- p + geom_boxplot()
+                            fill = Gender)) 
         
-        if (input$show_points==TRUE){
-            p <- p + geom_point(position = position_jitterdodge(jitter.width=0.2))
+        if (input$show_violin == TRUE) {
+            p <- p + geom_violin(fill="lightblue")
+        } else {
+            p <- p + geom_boxplot(fill = "lightgreen")
         }
         
-        p <- p + theme_bw()
-        p <- p + labs(y = input$protein_selector)
+        if (input$show_points == TRUE) {
+            p <- p + geom_jitter(width=0.2, color="darkred", alpha=0.7) #width=0.2, alpha=0.7) + 
+        }
+        #point(position = position_jitterdodge(jitter.width=0.2))
+        p <- p + 
+            theme_bw() + 
+            labs(y = input$protein_selector)
         p
     })
     

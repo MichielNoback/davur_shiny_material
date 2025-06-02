@@ -8,30 +8,27 @@
 #
 
 library(shiny)
+library(ggplot2)
+
+airquality <- tidyr::drop_na(airquality, c(Solar.R, Ozone))
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
 
     # Application title
-    titlePanel("Old Faithful Geyser Data"),
+    titlePanel("Air Quality"),
 
     # Sidebar with a slider input for number of bins 
     sidebarLayout(
         sidebarPanel(
-            sliderInput(inputId = "bins",
-                        "Number of bins:",
-                        min = 1,
-                        max = 50,
-                        value = 30),
-            selectInput(inputId = "color",
-                        label = "Choose a color",
-                        choices = c("darkgreen", "darkred", "gold"),
-                        selected = "darkgreen")
+            radioButtons(inputId = "pointsize",
+                         label = "Size",
+                         choices = c(1, 2, 3, 4))
         ),
 
         # Show a plot of the generated distribution
         mainPanel(
-           plotOutput(outputId = "distPlot")
+           plotOutput("airquality")
         )
     )
 )
@@ -39,16 +36,12 @@ ui <- fluidPage(
 # Define server logic required to draw a histogram
 server <- function(input, output) {
 
-    output$distPlot <- renderPlot({
-        # generate bins based on input$bins from ui.R
-        x    <- faithful[, 2]
-        bins <- seq(min(x), max(x), length.out = input$bins + 1)
-        chosen_color <- input$color
-        print(chosen_color)
-        # draw the histogram with the specified number of bins
-        hist(x, breaks = bins, col = chosen_color, border = 'white',
-             xlab = 'Waiting time to next eruption (in mins)',
-             main = 'Histogram of waiting times')
+    output$airquality <- renderPlot({
+        pointsize <- as.integer(input$pointsize)
+        print(pointsize)
+        ggplot(data = airquality, 
+               mapping = aes(x = Solar.R, y = Ozone)) + 
+            geom_point(size = pointsize)
     })
 }
 

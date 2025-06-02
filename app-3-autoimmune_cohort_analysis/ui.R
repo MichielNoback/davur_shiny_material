@@ -42,6 +42,7 @@ fluidPage(
             tabsetPanel(
                 tabPanel("Boxplot",
                          checkboxInput("show_points","Show Points"),
+                         checkboxInput("show_violin","Show Violin Plot"),
                          plotOutput("boxPlot")
                 ),
                 
