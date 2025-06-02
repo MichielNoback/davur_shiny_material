@@ -1,0 +1,404 @@
+---
+title: "Dashboard Development with ridgeline plot"
+author: "Michiel Noback"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## preliminaries
+
+Load required libraries
+
+```{r load-libs, message=FALSE}
+## Note that the chunk has 'message=FALSE'
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggridges)
+```
+
+
+# A COVID-19 dashboard
+
+## Background
+
+This log describes the development of a custom COVID dashboard. The focus will be on municipalities ("gemeentes"). By default a top-ten of municipalities with highest COVID infections should be displayed, but users should also be able to display their own selection.
+
+## The plot
+
+I want to develop a ridgeline plot for cases per municipality.
+
+The basic ridgeline plot, as presented in the  [R Graph Gallery](https://www.r-graph-gallery.com/294-basic-ridgeline-plot.html), is this:
+
+```{r basic-ridgeline}
+ #from library ggridges
+
+# Diamonds dataset is provided by R natively
+#head(diamonds)
+ 
+# basic example
+ggplot(diamonds, aes(x = price, y = cut, fill = cut)) +
+  geom_density_ridges() +
+  theme_ridges() + 
+  theme(legend.position = "none")
+```
+
+
+## The data
+
+Two datasets are required: COVID data and population data.
+
+### Covid-19 data
+
+From the CBS VOVID-19 data portal (https://data.rivm.nl/covid-19/) the file `COVID-19_aantallen_gemeente_per_dag.csv` was downloaded. 
+
+```{r download-covid-data-1}
+filename = "COVID-19_aantallen_gemeente_per_dag.csv"
+local_folder = "data/"
+url <- paste0("https://data.rivm.nl/covid-19/", filename)
+local_file <- paste0(local_folder, filename)
+```
+
+In the chunck below `eval = ` can be set to `TRUE` to download a new version of the file.
+
+```{r download-covid-data-2, eval = FALSE}
+download.file(url = url, destfile = local_file)
+```
+
+
+### Population data
+
+The population data were downloaded from: [https://opendata.cbs.nl/#/CBS/nl/dataset/03759ned/table?dl=39E0B](https://opendata.cbs.nl/#/CBS/nl/dataset/03759ned/table?dl=39E0B)
+Where selection was made to only get total population sizes without distinction of age, marital status or gender.
+Since automatic download is not possible via this web form, the file was downloaded manually as
+`Bevolking__geslacht__leeftijd__regio_21042021_115647.csv` and placed under the data folder.
+
+## Data loading
+
+Both files were loaded and investigated cursorily.
+
+### COVID data
+
+Read in and inspect contents:
+
+```{r read-covid-data, results = 'hold'}
+covid_data <- read_delim(file = local_file,
+                                delim = ";")
+
+#store as single variable and delete column
+current_report_date <- covid_data[1, "Date_of_report"]
+covid_data <- covid_data %>% 
+    select(-Date_of_report)
+
+covid_data %>% head()
+```
+
+This seems like a reasonable starting point.
+
+
+### Population data
+
+Read in and inspect contents:
+
+```{r read-population-data, results = 'hold'}
+pop_file <- "data/Bevolking__geslacht__leeftijd__regio_21042021_115647.csv"
+pop_data_raw <- read_delim(file = pop_file,
+                       delim = ";")
+#OK, but change colnames to remove spaces
+tmp_colnames <- colnames(pop_data_raw)
+tmp_colnames[3] <- "Burgerlijke_staat" # replaces 'Burgerlijke staat'
+tmp_colnames[5] <- "Regios"     #replaces Regio's
+tmp_colnames[6] <- "Bevolking"  #replaces 'Bevolking op 1 januari (aantal)'
+colnames(pop_data_raw) <- tmp_colnames
+
+pop_data_raw %>% head()
+```
+
+So there are population counts for several years. I am only interested in 2020 right now so will discard everything else.
+Also, some columns are not interesting right now:
+
+```{r tabulate-pop-data-columns, results = 'hold'}
+pop_data_raw %>% group_by(Geslacht) %>% summarize(count = n(), .groups = "drop")
+pop_data_raw %>% group_by(Leeftijd) %>% summarize(count = n(), .groups = "drop")
+pop_data_raw %>% group_by(Burgerlijke_staat) %>% summarize(count = n(), .groups = "drop")
+```
+
+Let's clean up.
+
+```{r clean-pop-data}
+pop_data <- pop_data_raw %>%
+    filter(Perioden == 2020) %>%
+    select(Regios, Bevolking) %>% 
+    drop_na()
+head(pop_data)
+```
+
+## Combine data
+
+```{r merge-pop-and-covid}
+all_data <- covid_data %>% 
+    left_join(pop_data, by = c("Municipality_name" = "Regios"))
+all_data 
+```
+
+This fails! Groningen has no population count. Why? Look it up in the pop_data_raw:
+
+```{r check-groningen-absence}
+pop_data_raw %>% filter(grepl("Groningen", Regios))
+```
+There it is: The city of Groningen is named "Groningen (gemeente)" in the pop-data dataset, whereas it is named "Groningen" in the COVID dataset. Apparently I will need another means to combine. The covid dataset has the column named "Municipality_code". Unfortunately this is not present in the pop_data. 
+I will check how often this happens, to see if a manual fix is the better option.
+
+```{r how-many-municipalities-missing}
+all_data %>%
+    distinct(Municipality_name, .keep_all = TRUE) %>%
+    summarize(Total = n(),
+              Missing = sum(is.na(Bevolking)))
+```
+Which are these?
+
+```{r which-municipalities-missing}
+missing_mun_pop <- all_data %>%
+    filter(is.na(Bevolking)) %>%
+    distinct(Municipality_name) %>%
+    pull(Municipality_name)
+missing_mun_pop
+```
+So population data are missing for 10 municipalities.
+
+```{r which-regios-missing}
+missing_combos <- tibble(Regios = character(0),
+                         Bevolking = double(0),
+                         municipality = character(0))
+for (municipality in missing_mun_pop) {
+    tmp <- pop_data %>% 
+        filter(grepl(municipality, Regios))
+    tmp$municipality <- municipality
+    missing_combos <- bind_rows(missing_combos, tmp)
+}
+print(missing_combos, n=Inf)
+```
+For the purpose of this initial exploration, I consider a manual correction of names appropriate.
+If this app is going to have a serious user base, a better solution may have to be found.
+
+```{r correct-municipality-names}
+pop_data <- pop_data %>% 
+    mutate(Regios = ifelse(Regios == "Groningen (gemeente)", "Groningen", Regios)) %>%
+    mutate(Regios = ifelse(Regios == "Utrecht (gemeente)", "Utrecht", Regios)) %>%
+    mutate(Regios = ifelse(Regios == "Laren (NH.)", "Laren", Regios)) %>%
+    mutate(Regios = ifelse(Regios == "'s-Gravenhage (gemeente)", "'s-Gravenhage", Regios)) %>%
+    mutate(Regios = ifelse(Regios == "Rijswijk (ZH.)", "Rijswijk", Regios)) %>%
+    mutate(Regios = ifelse(Regios == "Middelburg (Z.)", "Middelburg", Regios)) %>%
+    mutate(Regios = ifelse(Regios == "Beek (L.)", "Beek", Regios)) %>%
+    mutate(Regios = ifelse(Regios == "Stein (L.)", "Stein", Regios))
+```
+
+and recreate the merge
+
+```{r merge-pop-and-covid_again}
+all_data <- covid_data %>% left_join(pop_data, by = c("Municipality_name" = "Regios"))
+all_data 
+```
+
+```{r which-municipalities-missing-again}
+all_data %>%
+    filter(is.na(Bevolking)) %>%
+    distinct(Municipality_name, .keep_all = T)
+```
+
+These last two will simply be removed.
+
+```{r last-filter}
+all_data <- all_data %>% 
+    filter(!is.na(Bevolking))
+```
+
+## Calculate covid cases per 1000 inhabitants
+
+The data is already there so this should not be too difficult.
+
+```{r normalized-covid-rates}
+normalize_counts <- function(x, normalizer) {
+    (x / normalizer) * 100000
+}
+## This overwrites the existing column, so I'll stick to the regular mutate()
+# all_data %>%
+#     mutate(across(c("Total_reported", "Hospital_admission", "Deceased"), normalize_covid_counts, Bevolking))
+
+all_data <- all_data %>% 
+    mutate(Total_norm = normalize_counts(Total_reported, Bevolking)) %>%
+    mutate(Hospital_norm = normalize_counts(Hospital_admission, Bevolking)) %>%
+    mutate(Deceased_norm = normalize_counts(Deceased, Bevolking))
+```
+
+
+## First attempt at plot
+
+Here is a first plot using a manual selection of 5 cities.
+First select the requested rows by filtering on these cities.
+
+```{r filter-selection}
+my_cities <- c("Groningen", "Delfzijl", "Amsterdam", "Eindhoven", "Leeuwarden")
+selected_cities <- all_data %>%
+    filter(Municipality_name %in% my_cities)
+head(selected_cities, 10)
+```
+
+
+```{r ridgeline-first}
+ggplot(selected_cities, aes(x = Total_reported, y = Municipality_name, fill = Municipality_name)) +
+  geom_density_ridges() +
+  theme_ridges() + 
+  theme(legend.position = "none")
+```
+So. 
+There is a serious problem here. 
+I cannot put Date on x and Counts on y. The essence of ridgeline plot is that it is a _density_ plot. I overlooked that one.
+
+I will need to find another visualization for my purpose.
+
+Here are two attempts: one with `geom_area` and another using `geom_smooth` to approximate the ridgeline plot using regular ggplot2 and a smoother.
+This is the one with `geom_area()`.
+
+```{r plot-geom-area}
+ggplot(selected_cities, aes(x = Date_of_publication, y = Total_reported)) + 
+  geom_area(aes(color = Municipality_name, fill = Municipality_name),
+           alpha = 0.8, position = position_dodge(0.8)) +
+    facet_wrap(. ~ Municipality_name, ncol = 1) +
+    labs(x = "date", y = "cases", fill = "City", color = "City") +
+    theme_minimal() + 
+    theme(legend.position = "none")
+```
+
+This is the one with `geom_smooth()`. Note that the `span = ` argument defines the amount of smoothing (averaging).
+
+```{r plot-geom-smooth}
+loess_span <- 0.05
+
+selected_cities <- selected_cities %>%
+    group_by(Municipality_name) %>%
+    mutate(loess_predict = predict(loess(Total_reported ~
+                                  as.numeric(Date_of_publication),
+                              span = loess_span)))
+
+ggplot(selected_cities, aes(x = Date_of_publication, y = Total_reported)) + 
+    geom_smooth(aes(color = Municipality_name, 
+                    fill = Municipality_name),
+                se = FALSE, 
+                span = loess_span, 
+                method = "loess", 
+                formula = y ~ x) +
+    geom_ribbon(aes(ymin = 0, 
+                    ymax = loess_predict, 
+                    fill = Municipality_name),
+                alpha = 0.3) +
+    facet_wrap(. ~ Municipality_name, ncol = 1) +
+    labs(x = "date", y = "cases", fill = "City", color = "City") +
+    theme_minimal() + 
+    theme(
+          strip.text.x = element_blank()
+    ) 
+```
+Lowering the span too much gives warnings.
+
+## Refactoring the code
+
+I have put both functions (as well as data loading) in a separate source file for easy sourcing when used in a dashboard setting:
+
+File: `dashboard_utilities.R`
+Functions:  
+
+- `load_data(covid_data_file, population_data_file)`
+- `normalize_covid_counts(data, per)`
+- `filter_data(data, date_from, date_to, municipalities)`
+- `area_plot(data, date_from, date_to, municipalities)`
+- `smoothed_plot(data, date_from, date_to, municipalities)`
+
+`filter_data` is a helper function for the visualization functions to prevent code duplication but can be used separately.
+
+Typical usage to load the dataset will now be like this
+
+```{r reload-all-data}
+rm(list = ls())
+source('R/dashboard_utilities.R')
+#download_new_covid_data()
+all_data <- load_data()
+all_data <- normalize_covid_counts(all_data)
+```
+
+
+## Testing selections on date and city
+
+Here are some selections as test.
+
+```{r area-plot-test}
+library(lubridate)
+my_cities <- c("Groningen", "Delfzijl", "Amsterdam", "Eindhoven", "Leeuwarden")
+start_date = ymd("2021-04-19")
+end_date = today() #ymd("2021-04-21")
+print(end_date)
+area_plot(all_data, my_cities,
+          date_from = start_date,
+          date_to = end_date)
+```
+
+There is something funny going on with the "Amsterdam" plot when making smaller selections. Have a look at the selection for that city:
+
+```{r amsterdam-dodgy}
+filter_data(all_data, "Amsterdam", start_date, end_date) %>% 
+    select(c(2, 9:15))
+```
+There is the problem: there are always two entries for a single day.
+A course of action should be taken: select one, add them, or calculate an average. Since they seem to refer to a region ("ROAZ_region") I will sum them for municipalities. This is the way to do that. 
+
+```{r}
+tmp <- filter(all_data, Municipality_name == "Amsterdam")
+combined_counts <- tmp %>% 
+    group_by(Date_of_publication, Municipality_name) %>%
+    summarize(Total = sum(Total_reported),
+              Hospital = sum(Hospital_admission),
+              Deaths = sum(Deceased),
+              .groups = "drop")
+combined_counts
+```
+Since this should be done integrated in the data-loading process, I modified
+
+
+
+
+
+Now for the smoothed plot.
+
+```{r smooth-plot-test}
+start_date = ymd("2021-04-19")
+end_date = today() #ymd("2021-04-21")
+smoothed_plot(all_data,
+            my_cities, 
+            date_from = start_date, 
+            date_to = end_date, 
+            loess_span = 0.25)
+```
+I like the second plot better, but the `loess_span` parameter needs to be dependent on the date-range interval. Since I have currently no time for that challenge I will stick to the area plot for now.
+
+
+
+
+
+
+
+## Session info
+
+This document was generated in the following session config:
+
+```{r show-session-info}
+sessionInfo()
+```
+
