@@ -28,7 +28,7 @@ generate_data <- function(cohort_size){
 }
 mydata <- generate_data(1000)
 
-filter_data <- function(x,age,gender){
+filter_data <- function(x, age, gender){
     filtered <- x %>% filter(Age > age[1],
                              Age < age[2], 
                              Gender %in% gender)
@@ -38,7 +38,7 @@ filter_data <- function(x,age,gender){
 # Define server logic required to draw a histogram
 function(input, output, session) {
     output$boxPlot <- renderPlot({
-        # Make a selection based on the age selector
+        # Make a selection based on the age selector; function filter_data is a custom one
         tp <- filter_data(mydata, input$age_selector, input$gender_selector) %>% 
             rename(readout = input$protein_selector)
         
@@ -47,15 +47,14 @@ function(input, output, session) {
                             fill = Gender)) 
         
         if (input$show_violin == TRUE) {
-            p <- p + geom_violin(fill="lightblue")
+            p <- p + geom_violin()
         } else {
-            p <- p + geom_boxplot(fill = "lightgreen")
+            p <- p + geom_boxplot()
         }
         
         if (input$show_points == TRUE) {
-            p <- p + geom_jitter(width=0.2, color="darkred", alpha=0.7) #width=0.2, alpha=0.7) + 
+            p <- p + geom_jitter(width=0.2, color="darkred", alpha=0.7) 
         }
-        #point(position = position_jitterdodge(jitter.width=0.2))
         p <- p + 
             theme_bw() + 
             labs(y = input$protein_selector)

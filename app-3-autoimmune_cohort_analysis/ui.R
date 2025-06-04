@@ -11,7 +11,6 @@ library(shiny)
 
 # Define UI for application that draws a histogram
 fluidPage(
-    
     # Application title
     titlePanel("Autoimmune Cohort analysis"),
     
@@ -20,13 +19,11 @@ fluidPage(
         sidebarPanel(
             sliderInput("age_selector",
                         "Age:",
-                        min = 18,
-                        max = 68,
+                        min = 18, max = 68,
                         value = c(30,60)
             ),
             checkboxGroupInput("gender_selector", "Gender:",
-                               choices=list('Female'='F',
-                                            'Male'  ='M'),
+                               choices=list('Female'='F', 'Male'  ='M'),
                                selected = 'F'
             ),
             selectInput("protein_selector", "Protein:",
@@ -36,7 +33,6 @@ fluidPage(
                         selected = 'IL6'
             )
         ),
-        
         # Show a plot of the generated distribution
         mainPanel(
             tabsetPanel(
